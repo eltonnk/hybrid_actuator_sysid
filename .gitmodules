@@ -1,0 +1,5 @@
+[submodule "pysysid"]
+	path = pysysid
+	url = https://github.com/eltonnk/pysysid.git
+	branch = genetic
+	
