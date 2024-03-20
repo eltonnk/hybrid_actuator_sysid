@@ -40,6 +40,12 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
 
         self.gear_ratio_n = self.params["gear_ratio_n"]
 
+        self.m_driver_K = self.params["m_driver_K"]
+        self.m_driver_w0 = self.params["m_driver_w0"]
+
+        self.b_driver_K = self.params["b_driver_K"]
+        self.b_driver_w0 = self.params["b_driver_w0"]
+
         # process model constants
         self.l11 = -self.motor_R / self.motor_L
         self.l12 = self.gear_ratio_n * self.motor_K / self.motor_L
@@ -64,9 +70,19 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
 
         self.brake_n_1 = self.brake_n - 1
 
-    def check_valid_brake_voltage(self, v_b: float):
-        if v_b < 0:
-            raise ValueError("Input voltage should always be positive for te brake.")
+        driver_voltage_cmd_to_current_cmd_ratio = 0.5
+
+        self.l61 = -self.m_driver_w0
+        self.l62 = -self.m_driver_K * self.m_driver_w0
+        self.l63 = -driver_voltage_cmd_to_current_cmd_ratio * self.l62
+
+        self.l71 = -self.b_driver_w0
+        self.l72 = -self.b_driver_K * self.b_driver_w0
+        self.l73 = -driver_voltage_cmd_to_current_cmd_ratio * self.l72
+
+    def check_valid_brake_voltage(self, v_cmd_b: float):
+        if v_cmd_b < 0:
+            raise ValueError("Brake nput voltage should always be positive.")
 
     def _omega_dot(self, total_state: np.ndarray, tau_u: float) -> float:
         # hybrid actuator process model
@@ -74,7 +90,6 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         i_b = total_state[1, 0]
         omega = total_state[2, 0]
         z = total_state[3, 0]
-        theta = total_state[4, 0]
 
         return (
             self.l31 * i_m
@@ -92,15 +107,17 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         i_b = total_state[1, 0]
         omega = total_state[2, 0]
         z = total_state[3, 0]
-        theta = total_state[4, 0]
+        # theta
+        v_m = total_state[5, 0]
+        v_b = total_state[6, 0]
 
         # Hybrid actuator inputs
-        v_m = total_input[0, 0]
-        v_b = total_input[1, 0]
+        v_cmd_m = total_input[0, 0]
+        v_cmd_b = total_input[1, 0]
         # Hand inputs
         tau_u = total_input[2, 0]
 
-        self.check_valid_brake_voltage(v_b)
+        self.check_valid_brake_voltage(v_cmd_b)
 
         abs_z = np.abs(z)
         abs_z_n_1 = np.power(abs_z, self.brake_n_1)
@@ -117,6 +134,8 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
                     + self.brake_A * omega
                 ],
                 [omega],
+                [self.l61 * v_m + self.l62 * i_m + self.l63 * v_cmd_m],
+                [self.l71 * v_b + self.l72 * i_b + self.l73 * v_cmd_b],
             ]
         )
 
@@ -187,25 +206,31 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         )
 
     def compute_df_dx(self, t: float, total_state: np.ndarray, total_input: np.ndarray):
-        i_m = total_state[0]
+        # i_m = total_state[0]
         i_b = total_state[1]
         omega = total_state[2]
         z = total_state[3]
-        theta = total_state[4]
+        # theta = total_state[4]
+        # v_m = total_state[5]
+        # v_b = total_state[6]
 
         return np.array(
             [
-                [self.l11, 0, self.l12, 0, 0],
-                [0, self.l21, 0, 0, 0],
+                [self.l11, 0, self.l12, 0, 0, self.l13, 0],
+                [0, self.l21, 0, 0, 0, 0, self.l22],
                 [
                     -self.gear_ratio_n * self.motor_K / self.J,
                     -(self.brake_alpha_1 * z + self.brake_c_1 * omega) / self.J,
                     -(self.gear_ratio_n**2 * self.motor_B + self._c(i_b)) / self.J,
                     -self._alpha(i_b) / self.J,
                     0,
+                    0,
+                    0,
                 ],
-                [0, 0, self._h1(z, omega), self._h2(z, omega), 0],
-                [0, 0, 1, 0, 0],
+                [0, 0, self._h1(z, omega), self._h2(z, omega), 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0],
+                [self.l62, 0, 0, 0, 0, self.l61, 0],
+                [0, self.l72, 0, 0, 0, 0, self.l71],
             ]
         )
 
@@ -213,7 +238,7 @@ class HybridActuatorPMG(pm2i.ProcessModelGenerator):
         self,
     ) -> pm2i.ProcessModelToIntegrate:
         ha_pm2i = pm2i.ProcessModelToIntegrate(
-            nbr_states=5,
+            nbr_states=7,
             nbr_inputs=3,
             nbr_outputs=3,
             fct_for_x_dot=self.compute_state_derivative,
@@ -280,6 +305,10 @@ def _main():
         "motor_B": 1.33e-5,
         "motor_J": 8e-7,
         "gear_ratio_n": 20,
+        "m_driver_K": 1.0,
+        "m_driver_w0": 400.0,
+        "b_driver_K": 1.0,
+        "b_driver_w0": 400.0,
     }
 
     integration_method = "Radau"
@@ -302,8 +331,8 @@ def _main():
 
     # v_b_sg = sg.SquareGenerator(period=1.5, pulse_width=0.5, amplitude=12, offset=12)
 
-    v_m_sg = sg.PrbsGenerator(amplitude=1, offset=0.0, min_period=0.01, seed=4)
-    v_b_sg = sg.PrbsGenerator(amplitude=12, offset=12, min_period=0.05, seed=5)
+    v_m_sg = sg.PrbsGenerator(amplitude=2, offset=0.0, min_period=0.01, seed=4)
+    v_b_sg = sg.PrbsGenerator(amplitude=24, offset=24, min_period=0.05, seed=5)
 
     tau_d_sg = sg.SineGenerator(frequency=0.3, amplitude=0.01, phase=0)
 
