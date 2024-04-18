@@ -514,6 +514,7 @@ def _main():
         n_jobs=8,
         integration_method=integration_method,
         integration_timeout=integration_timeout,
+        save_progess=True,
     )
 
     genetic_algo_regressor.fit(X, y, n_iter=40, x0=x0)
