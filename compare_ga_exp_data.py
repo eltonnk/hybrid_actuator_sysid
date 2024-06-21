@@ -15,7 +15,7 @@ def _main():
 
     SHOW_ANG_VEL = True
 
-    data_path = pathlib.Path("data/2024_04_19")
+    data_path = pathlib.Path("data/2024_04_22")
 
     data_files = list(pathlib.Path.glob(data_path, "hybrid_2*"))
 
@@ -34,7 +34,7 @@ def _main():
     theta = np.array(df_hybrid["theta"])
     omega = np.array(df_hybrid["omega"])
 
-    fig, ax = plt.subplots(3, 2)
+    fig, ax = plt.subplots(3, 2, constrained_layout=True, sharex=True)
 
     ax[0][0].set_xlabel(r"$t$ (s)")
     ax[0][0].set_ylabel(r"$v_{m}(t)$ (V)")
@@ -71,8 +71,6 @@ def _main():
         ax[2][1].set_ylabel(r"$\theta(t)$ (rad)")
         ax[2][1].plot(t, theta, label=r"Angular Position", color="C0")
         ax[2][1].legend(loc="upper right")
-
-    data_path = pathlib.Path("data/2024_04_19")
 
     data_files = list(pathlib.Path.glob(data_path, "hybfit_*"))
 
@@ -126,6 +124,9 @@ def _main():
         ax[2][1].set_ylabel(r"$\theta(t)$ (rad)")
         ax[2][1].plot(t, theta, label=r"Id. Angular Position", color="C1")
         ax[2][1].legend(loc="upper right")
+
+    for a in np.ravel(ax):
+        a.grid(linestyle="--")
 
     plt.show()
 
